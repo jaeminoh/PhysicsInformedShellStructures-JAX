@@ -1,5 +1,8 @@
+# model parameters
+*.eqx
+
 # Scheduler related
-python.o*
+python_*
 main.sh
 
 # Byte-compiled / optimized / DLL files
