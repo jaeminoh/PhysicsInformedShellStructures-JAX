@@ -5,6 +5,8 @@ from jaxtyping import ArrayLike, Float
 
 class Geometry:
     """
+    Base class for Geometry.
+
     Index convention for mixed component: contravariant first, covariant last.
 
     Methods whose names start with _ are for single batch
@@ -58,12 +60,9 @@ class Geometry:
     ) -> Float[ArrayLike, "3"]:
         """
         Chart for the mid-surface.
-        (Hyperbolic Paraboloid here.)
+        Subclass must define this.
         """
-        x = xi1
-        y = xi2
-        z = xi1**2 - xi2**2
-        return jnp.stack([x, y, z])
+        raise NotImplementedError
 
     def _cov_tangents(
         self, xi1: Float[ArrayLike, ""], xi2: Float[ArrayLike, ""]
@@ -80,16 +79,24 @@ class Geometry:
         self, xi1: Float[ArrayLike, ""], xi2: Float[ArrayLike, ""]
     ) -> tuple[Float[ArrayLike, "2 2 3"]]:
         """
-        output has a shape of (2, 2, 3).
         0th index: a1, a2
         1st index: partial_1, partial_2
         """
-        cov_a1_d = jax.jacfwd(self._cov_tangents, argnums=0)(xi1, xi2)  # ((3,), (3,))
-        cov_a1_d = jnp.stack(cov_a1_d)  # (2, 3)
-        cov_a2_d = jax.jacfwd(self._cov_tangents, argnums=1)(xi1, xi2)  # ((3,), (3,))
-        cov_a2_d = jnp.stack(cov_a2_d)  # (2, 3)
-        tangents_d = jnp.stack([cov_a1_d, cov_a2_d])  # (2, 2, 3)
+        cov_a_d1 = jax.jacfwd(self._cov_tangents, argnums=0)(xi1, xi2)  # ((3,), (3,))
+        cov_a_d1 = jnp.stack(cov_a_d1)  # (2, 3)
+        cov_a_d2 = jax.jacfwd(self._cov_tangents, argnums=1)(xi1, xi2)  # ((3,), (3,))
+        cov_a_d2 = jnp.stack(cov_a_d2)  # (2, 3)
+        tangents_d = jnp.stack([cov_a_d1, cov_a_d2], axis=1)  # (2, 2, 3)
         return tangents_d
+
+    @staticmethod
+    def _from_tangents_to_normal(a1: Float[ArrayLike, "3"], a2: Float[ArrayLike, "3"]):
+        """
+        Utility function, from tangent vectors to the unit normal vector.
+        """
+        a1_cross_a2 = jnp.cross(a1, a2)
+        a3 = a1_cross_a2 / jnp.maximum(jnp.linalg.norm(a1_cross_a2), 1e-12)
+        return a3
 
     def _cov_local_basis(
         self, xi1: Float[ArrayLike, ""], xi2: Float[ArrayLike, ""]
@@ -100,15 +107,6 @@ class Geometry:
         cov_a1, cov_a2 = self._cov_tangents(xi1, xi2)
         cov_a3 = self._from_tangents_to_normal(cov_a1, cov_a2)
         return cov_a1, cov_a2, cov_a3
-
-    @staticmethod
-    def _from_tangents_to_normal(a1: Float[ArrayLike, "3"], a2: Float[ArrayLike, "3"]):
-        """
-        Utility function, from tangent vectors to the unit normal vector.
-        """
-        a1_cross_a2 = jnp.cross(a1, a2)
-        a3 = a1_cross_a2 / jnp.maximum(jnp.linalg.norm(a1_cross_a2), 1e-12)
-        return a3
 
     @staticmethod
     @jax.vmap
@@ -134,9 +132,9 @@ class Geometry:
     def _con_I(cov_I: Float[ArrayLike, "2 2"]) -> Float[ArrayLike, "2 2"]:
         """
         Getting contravariant components of the first fundamental form (metric tensor)
-        from the covariant components.
+        from the covariant components. Inverse matrix.
         """
-        con_I = jnp.linalg.solve(cov_I, jnp.eye(cov_I.shape[0]))
+        con_I = jnp.linalg.solve(cov_I, jnp.eye(2))
         return con_I
 
     @staticmethod
@@ -173,10 +171,9 @@ class Geometry:
         """
         The third fundamental form (III)_{alpha, beta} = sum_{lambda} b^{lambda}_{alpha} b_{lambda, beta}.
         Note that the second fundamental form is a symmetric tensor.
-        Hence the actual computation is done via cov_II @ mix_II.
         """
-        III = cov_II @ mix_II
-        return III
+        cov_III = (cov_II @ mix_II).T
+        return cov_III
 
     @staticmethod
     @jax.vmap
@@ -189,11 +186,86 @@ class Geometry:
         """
         Christoffel symbol Gamma(lambda, alpha, beta): a_{alpha, beta} dot a^lambda.
         """
-        con_a = jnp.stack([cov_a1, cov_a2], 1) @ con_I
+        con_a = jnp.stack([cov_a1, cov_a2], 1) @ con_I  # (3, 2)
         christoffel_symbol = jnp.einsum("abz, zl -> lab", tangents_d, con_a)
         return christoffel_symbol
 
 
+class Test(Geometry):
+    def __init__(self, xi1, xi2):
+        super().__init__(xi1, xi2)
+
+    def __call__(
+        self, xi1: Float[ArrayLike, ""], xi2: Float[ArrayLike, ""]
+    ) -> Float[ArrayLike, "3"]:
+        """
+        Chart for the mid-surface.
+        """
+        x = xi1
+        y = xi2
+        z = xi1**2 - xi2**2
+        return jnp.stack([x, y, 0.5 * z])
+
+    @staticmethod
+    def a(xi1, xi2):
+        return 1 + xi1**2 + xi2**2
+
+    def christofell(self, xi1, xi2):
+        a = self.a(xi1, xi2)
+        gamma_111 = xi1 / a
+        gamma_112 = 0.0
+        gamma_121 = 0.0
+        gamma_122 = -xi1 / a
+        gamma_211 = -xi2 / a
+        gamma_212 = 0.0
+        gamma_221 = 0.0
+        gamma_222 = xi2 / a
+        christoffel = jnp.stack(
+            [
+                jnp.array([[gamma_111, gamma_112], [gamma_121, gamma_122]]),
+                jnp.array([[gamma_211, gamma_212], [gamma_221, gamma_222]]),
+            ]
+        )
+        return christoffel
+
+    def III(self, xi1, xi2):
+        a = self.a(xi1, xi2)
+        III = 1 / a**2 * jnp.array([[1 + xi2**2, -xi1 * xi2], [-xi1 * xi2, 1 + xi1**2]])
+        return III
+
+
+class HyperbolicParaboloid(Geometry):
+    def __init__(self, xi1, xi2):
+        super().__init__(xi1, xi2)
+
+    def __call__(
+        self, xi1: Float[ArrayLike, ""], xi2: Float[ArrayLike, ""]
+    ) -> Float[ArrayLike, "3"]:
+        """
+        Chart for the mid-surface.
+        (Hyperbolic Paraboloid here.)
+        """
+        x = xi1
+        y = xi2
+        z = xi1**2 - xi2**2
+        return jnp.stack([x, y, z])
+
+
 if __name__ == "__main__":
-    # Build a test based on FEA-Shell, hyperbolic parabolid.
-    pass
+    import numpy as np
+
+    xi = np.linspace(-0.5, 0.5, 50)
+    mesh = np.meshgrid(xi, xi, indexing="ij")
+    xi1 = mesh[0].ravel()
+    xi2 = mesh[1].ravel()
+    geom = Test(xi1, xi2)
+    # Test for Christoffel symbol.
+    print(
+        "Test - Christofell symbol:",
+        np.allclose(geom.christoffel_symbol, jax.vmap(geom.christofell)(xi1, xi2)),
+    )
+    # Test for the third fundamental form.
+    print(
+        "Test - Third fundamental form:",
+        np.allclose(geom.cov_III, jax.vmap(geom.III)(xi1, xi2))
+    )
