@@ -8,7 +8,16 @@ from src._geometry import HyperbolicParaboloid
 from src._linear_elastic import LinearElastic
 from src._linear_nagdhi import LinearNagdhi
 
-xx = np.linspace(-0.5, 0.5, 101)
+
+def bmv(a, b):
+    return np.einsum("...ij,...j", a, b)
+
+
+def bdot(a, b):
+    return np.einsum("...i,...i", a, b)
+
+
+xx = np.linspace(-0.5, 0.5, 201)
 mesh = np.meshgrid(xx, xx, indexing="ij")
 xi1 = mesh[0].ravel()
 xi2 = mesh[1].ravel()
@@ -166,43 +175,33 @@ By2[:, 1, 2] = 1.0
 
 
 init_key = jr.PRNGKey(0)
-pinn = MLP(50, 4, lambda xi1, xi2: (xi1**2 - 0.25) * (xi2**2 - 0.25), init_key)
+pinn = MLP(50, 4, T_u=geom.T_u, key=init_key)
 
-opt_pinn = eqx.tree_deserialise_leaves("params/weak.eqx", pinn)
+opt_pinn = eqx.tree_deserialise_leaves("params/adam.eqx", pinn)
 
-u, theta = jax.vmap(opt_pinn._u_and_theta)(xi1, xi2, geom.T)
-u_d, theta_d = jax.vmap(opt_pinn._u_and_theta_d)(xi1, xi2, geom.T)
+uhat, u, u_d, theta, theta_d = jax.vmap(opt_pinn._u_and_theta_d)(xi1, xi2)
 shell_model = LinearNagdhi()
-_membrane_strain = shell_model._membrain_strain(
+
+pred_5d = np.concatenate([u, theta], 1)
+pred_5d_1 = np.concatenate([u_d[..., 0], theta_d[..., 0]], 1)
+pred_5d_2 = np.concatenate([u_d[..., 1], theta_d[..., 1]], 1)
+
+
+# membrane energy
+membrane_strains = bmv(Bm, pred_5d) + bmv(Bm1, pred_5d_1) + bmv(Bm2, pred_5d_2)
+membrane_energy = bdot(membrane_strains, bmv(C, membrane_strains))
+
+_membrane_strain = shell_model._membrane_strain(
     u, u_d, geom.cov_II, geom.christoffel_symbol
 )
 _membrane_energy = np.einsum(
     "...ab,...abcd,...cd", _membrane_strain, C_jax, _membrane_strain
 )
-
-pred_5d = np.concatenate([u, theta], 1)
-pred_5d_1 = np.concatenate([u_d[..., 0], theta_d[..., 0]], 1)
-pred_5d_2 = np.concatenate([u_d[..., 1], theta_d[..., 1]], 1)
-membrane_strains = (
-    np.einsum("...ij, ...j", Bm, pred_5d)
-    + np.einsum("...ij, ...j", Bm1, pred_5d_1)
-    + np.einsum("...ij, ...j", Bm2, pred_5d_2)
-)
-membrane_energy = np.einsum("...ij, ...j", C, membrane_strains)
-membrane_energy = np.einsum("...i, ...i", membrane_strains, membrane_energy)
-
-
-def bmv(a, b):
-    return np.einsum("...ij,...j", a, b)
-
-
-def bdot(a, b):
-    return np.einsum("...i,...i", a, b)
-
-
-# membrane energy
 print("membrane test", np.allclose(_membrane_energy, membrane_energy))
-
+membrane_energy = (
+    (membrane_energy * geom.sqrt_det_a).mean() * geom.parametric_area * 0.1 * 0.5
+)
+print(f"membrane energy: {membrane_energy:.3e}")
 # bending energy
 bending_strains = bmv(Bk, pred_5d) + bmv(Bk1, pred_5d_1) + bmv(Bk2, pred_5d_2)
 bending_energy = bdot(bending_strains, bmv(C, bending_strains))
@@ -214,12 +213,22 @@ _bending_energy = np.einsum(
     "...ab,...abcd,...cd", _bending_strains, C_jax, _bending_strains
 )
 print("bending test", np.allclose(_bending_energy, bending_energy))
+bending_energy = (
+    (bending_energy * geom.sqrt_det_a).mean() * geom.parametric_area * 1e-3 / 12 * 0.5
+)
+print(f"bending energy: {bending_energy:.3e}")
 
 # shear energy
-_shear_strains = shell_model._shear_strain(u, u_d, theta, geom.mix_II)
-_shear_energy = np.einsum("...i, ...ij, ...j", _shear_strains, D_jax, _shear_strains)
-
 shear_strains = bmv(By, pred_5d) + bmv(By1, pred_5d_1) + bmv(By2, pred_5d_2)
 shear_energy = bdot(shear_strains, bmv(D, shear_strains))
 
+_shear_strains = shell_model._shear_strain(u, u_d, theta, geom.mix_II)
+_shear_energy = np.einsum("...a, ...ab, ...b", _shear_strains, D_jax, _shear_strains)
 print("shear test", np.allclose(_shear_energy, shear_energy))
+shear_energy = (
+    (shear_energy * geom.sqrt_det_a).mean() * geom.parametric_area * 0.1 * 0.5 * 5 / 6
+)
+print(f"shear energy: {shear_energy:.3e}")
+
+work = -1 * (uhat[:, 2] * geom.sqrt_det_a).mean() * geom.parametric_area * 0.1
+print(f"work: {work:.3e}")

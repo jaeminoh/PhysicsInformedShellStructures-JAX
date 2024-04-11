@@ -1,3 +1,5 @@
+"""# ruff noqa
+
 import scipy.sparse as spp
 import jax.experimental.sparse as sp
 from dolfin import *
@@ -26,7 +28,7 @@ L = f * v * dx
 A, b = assemble_system(a, L, bcs=bc)
 # conversion to sparse matrix and vector
 x = mesh.coordinates()
-size = x[:,0].size
+size = x[:, 0].size
 indptr, indices, data = as_backend_type(A).mat().getValuesCSR()
 A_spp = spp.csr_matrix((data, indices, indptr))
 A_sp = sp.BCSR.from_scipy_sparse(A_spp)
@@ -36,3 +38,4 @@ uhat = sp.linalg.spsolve(data, indices, indptr, b_vec)
 # due to the sparsity pattern, reordering is necessary.
 b_recon = sp.csr_matvec(A_sp, uhat)
 print(abs(b_recon - b_vec).sum() / abs(b_vec).sum())
+"""

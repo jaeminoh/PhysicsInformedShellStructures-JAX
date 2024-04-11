@@ -1,0 +1,14 @@
+2024-04-11 17:12:13.345187: W external/xla/xla/service/gpu/nvptx_compiler.cc:742] The NVIDIA driver's CUDA version is 12.2 which is older than the ptxas CUDA version (12.4.99). Because the driver is older than the ptxas version, XLA is disabling parallel compilation, which may slow down compilation. You should update your NVIDIA driver or use the NVIDIA-provided CUDA forward compatibility packages.
+ensure double-precision: float64
+Pre-computing geometric quantities...
+Done! Elapsed time: 1.40s
+adam stage...
+Done! Elapsed time: 85.79s,
+    i: 3.536e-02, e: 1.935e-02, m: 3.318e-02, b: 1.677e-03, s: 5.010e-04
+LBFGS running...
+it: 100, i: 3.180e-03, e: 6.361e-03, m: 2.921e-03, b: 1.326e-04, s: 1.262e-04
+it: 200, i: 3.182e-03, e: 6.365e-03, m: 2.923e-03, b: 1.355e-04, s: 1.238e-04
+Done! Elapsed time: 4.71s
+inner: 3.182e-03, external: 6.365e-03, memb: 0.00, bend: 0.00, shear: 0.00
+
+conclusion: equinox is not the cause.

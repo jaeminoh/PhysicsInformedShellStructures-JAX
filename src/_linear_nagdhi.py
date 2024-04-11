@@ -6,7 +6,7 @@ from jaxtyping import Array, Float
 class LinearNagdhi:
     @staticmethod
     @jax.vmap
-    def _membrain_strain(
+    def _membrane_strain(
         u: Float[Array, "3"],
         u_d: Float[Array, "3 2"],
         cov_II: Float[Array, "2 2"],
@@ -20,9 +20,8 @@ class LinearNagdhi:
         u_a_surf_b = u_d[:-1] - jnp.einsum(
             "lab, l -> ab", christoffel_symbol, u[:-1]
         )  # (2, 2)
-        u_b_surf_a = u_a_surf_b.T
-        membrain_strain = 0.5 * (u_a_surf_b + u_b_surf_a) - cov_II * u[2]
-        return membrain_strain
+        membrane_strain = 0.5 * (u_a_surf_b + u_a_surf_b.T) - cov_II * u[-1]
+        return membrane_strain
 
     @staticmethod
     @jax.vmap
@@ -39,16 +38,16 @@ class LinearNagdhi:
         Bending strain tensor.
         """
         theta_a_surf_b = theta_d - jnp.einsum(
-            "lab, l -> ab", christoffel_symbol, theta[:-1]
+            "lab, l -> ab", christoffel_symbol, theta
         )  # (2, 2)
-        first_term = 0.5 * (theta_a_surf_b + theta_a_surf_b.T)
+        first_term = theta_a_surf_b + theta_a_surf_b.T
         u_a_surf_b = u_d[:-1] - jnp.einsum(
             "lab, l -> ab", christoffel_symbol, u[:-1]
         )  # (2, 2)
         bu = u_a_surf_b.T @ mix_II
-        second_term = 0.5 * (bu + bu.T)
+        second_term = bu + bu.T
         third_term = cov_III * u[-1]
-        return first_term - second_term + third_term
+        return 0.5 * (first_term - second_term) + third_term
 
     @staticmethod
     @jax.vmap
@@ -58,5 +57,5 @@ class LinearNagdhi:
         theta: Float[Array, "2"],
         mix_II: Float[Array, "2 2"],
     ) -> Float[Array, "2"]:
-        shear_strain = theta + u_d[-1] + u[:-1] @ mix_II
+        shear_strain = theta + u_d[2] + u[:2] @ mix_II
         return shear_strain

@@ -1,32 +1,49 @@
+import time
+
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-import jaxopt
 import numpy as np
+import optax
+import jaxopt
 import equinox as eqx
+from scipy.stats.qmc import Sobol
 
-from src._geometry import Geometry
+from src._geometry import HyperbolicParaboloid
 from src._linear_elastic import LinearElastic
 from src._linear_nagdhi import LinearNagdhi
 from src.nn import MLP
 
-key = jr.PRNGKey(0)
-key, *keys = jr.split(key, 3)
-xi1 = jr.uniform(keys[0], (2048,)) - 0.5
-xi2 = jr.uniform(keys[1], (2048,)) - 0.5
+seed = 1
+rng = jr.PRNGKey(seed)
+xi_col = Sobol(d=2).random(2**14) - 0.5
+xi1 = jnp.asarray(xi_col[:, 0])
+xi2 = jnp.asarray(xi_col[:, 1])
 
-geom = Geometry(xi1, xi2)
+print("ensure double-precision:", xi1.dtype)
+
+print("Pre-computing geometric quantities...")
+tic = time.time()
+geom = HyperbolicParaboloid(xi1, xi2)
 
 shell_model = LinearNagdhi()
 material_model = LinearElastic(1.0, 0.3)
 
 C = jax.vmap(material_model._C)(geom.con_I)  # precomputable
 D = jax.vmap(material_model._D)(geom.con_I)  # precomputable
+toc = time.time()
+print(f"Done! Elapsed time: {toc - tic:.2f}s")
 thickness = 0.1
-shear_factor = 5 / 6
+shear_factor = 5.0 / 6.0
 
-key, init_key = jr.split(key)
-pinn = MLP(50, 4, lambda xi1, xi2: (xi1**2 - 0.25) * (xi2**2 - 0.25), init_key)
+
+def fully_clamped(xi1, xi2):
+    return (xi1**2 - 0.25) * (xi2**2 - 0.25)
+
+
+rng, init_key = jr.split(rng)
+
+pinn = MLP(50, 4, geom.T_u, for_bc=fully_clamped, key=init_key)
 
 
 ####################
@@ -35,17 +52,17 @@ pinn = MLP(50, 4, lambda xi1, xi2: (xi1**2 - 0.25) * (xi2**2 - 0.25), init_key)
 def surface_integral(
     _integrand, _jacobian=geom.sqrt_det_a, _factor=geom.parametric_area
 ):
+    """
+    Utility function for (Monte-Carlo) integration over a surface
+    """
     value = (_integrand * _jacobian).mean() * _factor
     return value
 
 
 def loss(pinn):
-    u, theta = jax.vmap(pinn._u_and_theta)(xi1, xi2, geom.T)  # (batch, 3), (batch, 2)
-    u_d, theta_d = jax.vmap(pinn._u_and_theta_d)(
-        xi1, xi2, geom.T
-    )  # (batch, #u_i, 2), (batch, #theta_i, 2)
+    uhat, u, u_d, theta, theta_d = jax.vmap(pinn._u_and_theta_d)(xi1, xi2)
 
-    membrane_strain = shell_model._membrain_strain(
+    membrane_strain = shell_model._membrane_strain(
         u, u_d, geom.cov_II, geom.christoffel_symbol
     )
     bending_strain = shell_model._bending_strain(
@@ -53,52 +70,125 @@ def loss(pinn):
     )
     shear_strain = shell_model._shear_strain(u, u_d, theta, geom.mix_II)
 
-    # energy integrand
-    _membrane_energy = (
-        jnp.einsum("...ab, ...abcd, ...cd", membrane_strain, C, membrane_strain)
-        * 0.5
-        * thickness
-    )
-    _bending_energy = (
-        jnp.einsum("...ab, ...abcd, ...cd", bending_strain, C, bending_strain)
-        * 0.5
-        * (thickness**3 / 12)
-    )
-    _shear_energy = (
-        jnp.einsum("...a, ...ab, ...b", shear_strain, D, shear_strain)
-        * 0.5
-        * thickness
-        * shear_factor
-    )
-    uhat, _ = jax.vmap(pinn._u_and_theta)(xi1, xi2)
-    _external_energy = -1 * thickness * uhat[:, -1]
-    external_energy = surface_integral(_external_energy)
+    # external energy
+    _external_energy = -1 * thickness * uhat[:, 2]  # gravity
+    external_energy = surface_integral(_external_energy)  # correct
 
-    membrane_energy = surface_integral(_membrane_energy)
+    # membrane energy
+    _membrane_energy = jnp.einsum(
+        "...ab,...abcd,...cd", membrane_strain, C, membrane_strain
+    )
+    membrane_energy = 0.5 * thickness * surface_integral(_membrane_energy)
 
-    bending_energy = surface_integral(_bending_energy)
+    # bending energy
+    _bending_energy = jnp.einsum(
+        "...ab,...abcd,...cd", bending_strain, C, bending_strain
+    )
+    bending_energy = 0.5 * (thickness**3 / 12) * surface_integral(_bending_energy)
 
-    shear_energy = surface_integral(_shear_energy)
+    # shear energy
+    _shear_energy = jnp.einsum("...a,...ab,...b", shear_strain, D, shear_strain)
+    shear_energy = 0.5 * thickness * shear_factor * surface_integral(_shear_energy)
 
     inner_energy = membrane_energy + bending_energy + shear_energy
 
     loss = inner_energy - external_energy
     return loss, (
-        membrane_energy / inner_energy,
-        bending_energy / inner_energy,
-        shear_energy / inner_energy,
+        inner_energy,
+        external_energy,
+        membrane_energy,
+        bending_energy,
+        shear_energy,
     )
 
 
-opt = jaxopt.LBFGS(loss, has_aux=True, maxiter=100, linesearch="backtracking")
-opt_pinn, state = opt.run(pinn)
+data = np.genfromtxt(
+    "fem_sol/fenics_pred_hyperb_parab_fully_clamped.csv", delimiter=",", skip_header=1
+)
+xi1_ = data[:, 0]
+xi2_ = data[:, 1]
+ux = data[:, 2]
+uy = data[:, 3]
+uz = data[:, 4]
+theta1 = data[:, 5]
+theta2 = data[:, 6]
 
-final_loss = state.value
-m, b, s = state.aux
 
-print(f"toal: {final_loss:.3e}, memb: {m:.3e}, bend: {b:.3e}, shear: {s:.3e}")
+def loss_data(pinn):
+    # u: covariant component for the global Cartesian basis.
+    (_, theta), u = jax.vmap(pinn)(xi1_, xi2_)
+    loss_data = (
+        jnp.mean((ux - u[:, 0]) ** 2)
+        + jnp.mean((uy - u[:, 1]) ** 2)
+        + jnp.mean((uz - u[:, 2]) ** 2)
+        + jnp.mean((theta1 - theta[:, 0]) ** 2)
+        + jnp.mean((theta2 - theta[:, 1]) ** 2)
+    )
+    return loss_data
 
+
+niter_adam = 10**4
+opt = jaxopt.OptaxSolver(
+    loss_data,
+    optax.adam(optax.cosine_decay_schedule(1e-3, niter_adam)),
+    maxiter=niter_adam,
+    tol=1e-16,
+)
+print("adam stage...")
+tic = time.time()
+pinn, _ = opt.run(pinn)
+toc = time.time()
+eqx.tree_serialise_leaves("params/adam.eqx", pinn)
+_, (i, e, m, b, s) = loss(pinn)
+print(
+    f"""Done! Elapsed time: {toc - tic:.2f}s,
+    i: {i:.3e}, e: {e:.3e}, m: {m:.3e}, b: {b:.3e}, s: {s:.3e}"""
+)
+
+
+opt = jaxopt.LBFGS(
+    fun=loss,
+    has_aux=True,
+    history_size=100,
+    min_stepsize=1e-12,
+    linesearch="backtracking",
+    condition="strong-wolfe",
+)
+
+print("LBFGS running...")
+state = opt.init_state(pinn)
+
+
+@jax.jit
+def step(pinn, state):
+    pinn, state = opt.update(pinn, state)
+    return pinn, state
+
+
+tic = time.time()
+min_loss = np.Inf
+for it in range(1, 200 + 1):
+    pinn, state = step(pinn, state)
+    if it % 100 == 0:
+        energy = state.value
+        if np.isnan(energy).sum() > 0:
+            print("NaN!")
+            break
+        if energy < min_loss:
+            min_loss = energy
+            i, e, m, b, s = state.aux
+            print(
+                f"it: {it}, i: {i:.3e}, e: {e:.3e}, m: {m:.3e}, b: {b:.3e}, s: {s:.3e}"
+            )
+
+opt_pinn = pinn
+toc = time.time()
+print(f"Done! Elapsed time: {toc - tic:.2f}s")
+
+i, e, m, b, s = state.aux
+
+print(
+    f"inner: {i:.3e}, external: {e:.3e}, memb: {m:.2f}, bend: {b:.2f}, shear: {s:.2f}"
+)
 
 eqx.tree_serialise_leaves("params/weak.eqx", opt_pinn)
-
-print(opt_pinn.layers[0].bias)
