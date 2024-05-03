@@ -14,13 +14,14 @@ from src._linear_elastic import LinearElastic
 from src._linear_nagdhi import LinearNagdhi
 from src.nn import MLP
 
+
 seed = 1
 rng = jr.PRNGKey(seed)
-xi_col = Sobol(d=2).random(2**14) - 0.5
+xi_col = Sobol(d=2).random(2**11) - 0.5
 xi1 = jnp.asarray(xi_col[:, 0])
 xi2 = jnp.asarray(xi_col[:, 1])
 
-print("ensure double-precision:", xi1.dtype)
+print(f"precision: {xi1.dtype}")
 
 print("Pre-computing geometric quantities...")
 tic = time.time()
@@ -96,9 +97,9 @@ def loss(pinn):
     return loss, (
         inner_energy,
         external_energy,
-        membrane_energy,
-        bending_energy,
-        shear_energy,
+        membrane_energy / inner_energy,
+        bending_energy / inner_energy,
+        shear_energy / inner_energy,
     )
 
 
@@ -114,46 +115,27 @@ theta1 = data[:, 5]
 theta2 = data[:, 6]
 
 
-def loss_data(pinn):
-    # u: covariant component for the global Cartesian basis.
-    (_, theta), u = jax.vmap(pinn)(xi1_, xi2_)
-    loss_data = (
-        jnp.mean((ux - u[:, 0]) ** 2)
-        + jnp.mean((uy - u[:, 1]) ** 2)
-        + jnp.mean((uz - u[:, 2]) ** 2)
-        + jnp.mean((theta1 - theta[:, 0]) ** 2)
-        + jnp.mean((theta2 - theta[:, 1]) ** 2)
-    )
-    return loss_data
-
-
-niter_adam = 10**4
+niter_adam = 10**3
 opt = jaxopt.OptaxSolver(
-    loss_data,
+    loss,
     optax.adam(optax.cosine_decay_schedule(1e-3, niter_adam)),
     maxiter=niter_adam,
-    tol=1e-16,
+    has_aux=True,
 )
 print("adam stage...")
 tic = time.time()
-pinn, _ = opt.run(pinn)
+adam_pinn, state = opt.run(pinn)
 toc = time.time()
-eqx.tree_serialise_leaves("params/adam.eqx", pinn)
-_, (i, e, m, b, s) = loss(pinn)
+i, e, m, b, s = state.aux
 print(
-    f"""Done! Elapsed time: {toc - tic:.2f}s,
-    i: {i:.3e}, e: {e:.3e}, m: {m:.3e}, b: {b:.3e}, s: {s:.3e}"""
+    f"""Done! Elapsed time: {toc - tic:.2f}s
+    i: {i:.3e}, e: {e:.3e}, m: {m:.2f}, b: {b:.2f}, s: {s:.2f}"""
 )
+# save model parameters
+eqx.tree_serialise_leaves("params/adam.eqx", adam_pinn)
 
 
-opt = jaxopt.LBFGS(
-    fun=loss,
-    has_aux=True,
-    history_size=100,
-    min_stepsize=1e-12,
-    linesearch="backtracking",
-    condition="strong-wolfe",
-)
+opt = jaxopt.LBFGS(fun=loss, has_aux=True)
 
 print("LBFGS running...")
 state = opt.init_state(pinn)
@@ -167,7 +149,7 @@ def step(pinn, state):
 
 tic = time.time()
 min_loss = np.Inf
-for it in range(1, 200 + 1):
+for it in range(1, 2000 + 1):
     pinn, state = step(pinn, state)
     if it % 100 == 0:
         energy = state.value
@@ -178,10 +160,8 @@ for it in range(1, 200 + 1):
             min_loss = energy
             i, e, m, b, s = state.aux
             print(
-                f"it: {it}, i: {i:.3e}, e: {e:.3e}, m: {m:.3e}, b: {b:.3e}, s: {s:.3e}"
+                f"it: {it}, i: {i:.3e}, e: {e:.3e}, m: {m:.2f}, b: {b:.2f}, s: {s:.2f}"
             )
-
-opt_pinn = pinn
 toc = time.time()
 print(f"Done! Elapsed time: {toc - tic:.2f}s")
 
@@ -191,4 +171,4 @@ print(
     f"inner: {i:.3e}, external: {e:.3e}, memb: {m:.2f}, bend: {b:.2f}, shear: {s:.2f}"
 )
 
-eqx.tree_serialise_leaves("params/weak.eqx", opt_pinn)
+eqx.tree_serialise_leaves("params/lbfgs.eqx", pinn)

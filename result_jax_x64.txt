@@ -1,0 +1,44 @@
+2024-05-03 11:26:18.819158: W external/xla/xla/service/gpu/nvptx_compiler.cc:742] The NVIDIA driver's CUDA version is 12.2 which is older than the ptxas CUDA version (12.4.99). Because the driver is older than the ptxas version, XLA is disabling parallel compilation, which may slow down compilation. You should update your NVIDIA driver or use the NVIDIA-provided CUDA forward compatibility packages.
+precision: float64
+Pre-computing geometric quantities...
+Done! Elapsed time: 1.10s
+adam stage...
+Done! Elapsed time: 3.95s
+    i: 4.544e-03, e: 9.590e-03, m: 0.61, b: 0.00, s: 0.39
+LBFGS running...
+it: 100, i: 9.001e-03, e: 1.831e-02, m: 0.81, b: 0.11, s: 0.07
+it: 200, i: 9.459e-03, e: 1.903e-02, m: 0.81, b: 0.13, s: 0.06
+it: 300, i: 9.498e-03, e: 1.911e-02, m: 0.81, b: 0.13, s: 0.06
+it: 400, i: 9.596e-03, e: 1.922e-02, m: 0.81, b: 0.13, s: 0.06
+it: 500, i: 9.550e-03, e: 1.918e-02, m: 0.81, b: 0.14, s: 0.06
+it: 600, i: 9.598e-03, e: 1.924e-02, m: 0.81, b: 0.14, s: 0.06
+it: 700, i: 9.586e-03, e: 1.923e-02, m: 0.81, b: 0.14, s: 0.06
+it: 800, i: 9.608e-03, e: 1.926e-02, m: 0.81, b: 0.14, s: 0.06
+it: 900, i: 9.598e-03, e: 1.925e-02, m: 0.81, b: 0.14, s: 0.06
+it: 1000, i: 9.612e-03, e: 1.926e-02, m: 0.81, b: 0.14, s: 0.06
+it: 1100, i: 9.621e-03, e: 1.927e-02, m: 0.81, b: 0.14, s: 0.06
+it: 1200, i: 9.631e-03, e: 1.929e-02, m: 0.81, b: 0.14, s: 0.06
+it: 1300, i: 9.632e-03, e: 1.929e-02, m: 0.81, b: 0.14, s: 0.06
+it: 1400, i: 9.636e-03, e: 1.929e-02, m: 0.81, b: 0.14, s: 0.06
+it: 1500, i: 9.637e-03, e: 1.930e-02, m: 0.81, b: 0.14, s: 0.06
+it: 1600, i: 9.642e-03, e: 1.930e-02, m: 0.81, b: 0.14, s: 0.06
+it: 1700, i: 9.640e-03, e: 1.930e-02, m: 0.81, b: 0.14, s: 0.06
+it: 1800, i: 9.647e-03, e: 1.931e-02, m: 0.81, b: 0.14, s: 0.06
+it: 1900, i: 9.650e-03, e: 1.931e-02, m: 0.81, b: 0.14, s: 0.06
+it: 2000, i: 9.642e-03, e: 1.930e-02, m: 0.81, b: 0.14, s: 0.06
+Done! Elapsed time: 8.08s
+inner: 9.642e-03, external: 1.930e-02, memb: 0.81, bend: 0.14, shear: 0.06
+2024-05-03 11:26:35.605940: W external/xla/xla/service/gpu/nvptx_compiler.cc:742] The NVIDIA driver's CUDA version is 12.2 which is older than the ptxas CUDA version (12.4.99). Because the driver is older than the ptxas version, XLA is disabling parallel compilation, which may slow down compilation. You should update your NVIDIA driver or use the NVIDIA-provided CUDA forward compatibility packages.
+adam results:
+ux: 1.00e+00
+uy: 9.86e-01
+uz: 4.96e-01
+theta1: 1.00e+00
+theta2: 1.00e+00
+2024-05-03 11:26:39.570799: W external/xla/xla/service/gpu/nvptx_compiler.cc:742] The NVIDIA driver's CUDA version is 12.2 which is older than the ptxas CUDA version (12.4.99). Because the driver is older than the ptxas version, XLA is disabling parallel compilation, which may slow down compilation. You should update your NVIDIA driver or use the NVIDIA-provided CUDA forward compatibility packages.
+lbfgs results:
+ux: 1.12e-02
+uy: 9.36e-03
+uz: 2.95e-03
+theta1: 1.46e-02
+theta2: 1.42e-02

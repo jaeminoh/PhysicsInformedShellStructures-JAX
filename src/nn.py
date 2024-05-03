@@ -34,7 +34,7 @@ class MLP(eqx.Module):
         # Network forward pass + Hard constraint for Dirichlet B.C.
         inputs = jnp.stack([xi1, xi2])
         for layer in self.layers[:-1]:
-            inputs = jax.nn.gelu(layer(inputs), approximate=False)
+            inputs = jnp.tanh(layer(inputs))
         nn = self.layers[-1](inputs) * self.for_bc(xi1, xi2)
         uhat, theta = jnp.split(nn, [3])
         u = self.T_u(xi1, xi2) @ uhat

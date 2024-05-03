@@ -5,7 +5,7 @@ from jaxtyping import Array, Float
 class LinearElastic:
     def __init__(self, young_modulus: float, poisson_ratio: float):
         self.mu = 0.5 * young_modulus / (1 + poisson_ratio)
-        self.Lambda = poisson_ratio * young_modulus / (1 - poisson_ratio**2)
+        self.Lambda = young_modulus * poisson_ratio / (1 - poisson_ratio**2)
 
     def _C(self, con_I: Float[Array, "2 2"]) -> Float[Array, "2 2 2 2"]:
         C = (

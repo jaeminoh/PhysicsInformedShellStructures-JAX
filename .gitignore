@@ -1,6 +1,7 @@
 # pre-commit
 .ruff_cache/
 .pre-commit-config.yaml
+pyproject.toml
 
 # data related
 *.eqx
