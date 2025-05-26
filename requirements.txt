@@ -22,7 +22,7 @@ nvidia-nvjitlink-cu12==12.4.127
 opt-einsum==3.3.0
 optax==0.2.2
 scipy==1.13.0
-setuptools==70.0.0
+setuptools==78.1.1
 six==1.16.0
 termcolor==2.4.0
 toolz==0.12.1
