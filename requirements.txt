@@ -28,4 +28,4 @@ termcolor==2.4.0
 toolz==0.12.1
 typeguard==2.13.3
 typing_extensions==4.11.0
-wheel==0.41.2
+wheel==0.46.2
